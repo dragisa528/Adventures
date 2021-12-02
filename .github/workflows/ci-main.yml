@@ -1,0 +1,306 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+# run after all other jobs have completed to check overall build status
+  discord-notification:
+    runs-on: ubuntu-20.04
+
+    name: Discord Notification
+
+    needs: [ubuntu-2004-scons-gcc-release-lto, ubuntu-2004-cmake-clang-debug, steam-runtime, mingw, flatpak, translations, macos-intel-debug, macos-arm-release, windows-release, windows-debug]
+    if: always()
+
+    steps:
+      - uses: technote-space/workflow-conclusion-action@v2
+      - uses: rjstone/discord-webhook-notify@v1
+        if: env.WORKFLOW_CONCLUSION == 'failure' && github.event_name == 'push'
+        with:
+          severity: error
+          webhookUrl: ${{ secrets.DISCORD_CI_WEBHOOK }}
+          description: |-
+            pusher: ${{ github.actor }}
+            commit: ${{ github.event.head_commit.message }}
+            commit url: ${{ github.event.head_commit.url }}
+
+  ubuntu-2004-scons-gcc-release-lto:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      - name: Ubuntu 20.04
+        run: |
+          export BRANCH=master
+          export IMAGE=2004
+          export NLS=false
+          export TOOL=scons
+          export CC=gcc
+          export CXX=g++
+          export CXX_STD=17
+          export CFG=release
+          export LTO=true
+          export CACHE_DIR=/home/wesnoth-CI/build
+          ./.github/workflows/ci-scripts/ubuntu.sh
+
+  ubuntu-2004-cmake-clang-debug:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      - name: Ubuntu 20.04
+        run: |
+          export BRANCH=master
+          export IMAGE=2004
+          export NLS=false
+          export TOOL=cmake
+          export CC=clang
+          export CXX=clang++
+          export CXX_STD=17
+          export CFG=debug
+          export LTO=false
+          export CACHE_DIR=/home/wesnoth-CI/build
+          ./.github/workflows/ci-scripts/ubuntu.sh
+
+
+  steam-runtime:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      - name: Steam Runtime
+        run: |
+          export BRANCH=master
+          export IMAGE=steamrt
+          export NLS=false
+          export TOOL=scons
+          export CC=gcc-9
+          export CXX=g++-9
+          export CXX_STD=17
+          export CFG=release
+          export LTO=false
+          export CACHE_DIR=/home/wesnoth-CI/build
+          ./.github/workflows/ci-scripts/ubuntu.sh
+
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        with:
+          name: Steam-Linux
+          path: |
+            ~/steambuild-*.tar
+
+  mingw:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      - name: MinGW Crosscompile
+        run: |
+          export BRANCH=master
+          export IMAGE=mingw
+          export NLS=false
+          export TOOL=scons
+          export CC=gcc
+          export CXX=g++
+          export CXX_STD=17
+          export CFG=release
+          export LTO=false
+          export CACHE_DIR=/home/wesnoth-CI/build
+          ./.github/workflows/ci-scripts/ubuntu.sh
+
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        with:
+          name: Source-And-Windows-Installer
+          path: |
+            ~/wesnoth-*.tar.bz2
+            ~/wesnoth-*-win64.exe
+
+  flatpak:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      - name: Flatpak
+        run: |
+          export BRANCH=master
+          export IMAGE=flatpak
+          export NLS=false
+          export TOOL=scons
+          export CC=gcc
+          export CXX=g++
+          export CXX_STD=17
+          export CFG=release
+          export LTO=false
+          export CACHE_DIR=/home/wesnoth-CI/build
+          ./.github/workflows/ci-scripts/ubuntu.sh
+
+  translations:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      - name: Translations
+        run: |
+          export BRANCH=master
+          export IMAGE=2004
+          export NLS=only
+          export TOOL=scons
+          export CC=gcc
+          export CXX=g++
+          export CXX_STD=17
+          export CFG=release
+          export LTO=false
+          export CACHE_DIR=/home/wesnoth-CI/build
+          ./.github/workflows/ci-scripts/ubuntu.sh
+
+  macos-intel-debug:
+    runs-on: macos-10.15
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      - name: macOS Intel Debug
+        run: |
+          export CFG=Debug
+          export CACHE_DIR=~/build-cache
+          ./.github/workflows/ci-scripts/macos.sh
+
+  macos-arm-release:
+    runs-on: macos-11.0
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      - name: macOS ARM Release
+        run: |
+          export CFG=Release
+          export CACHE_DIR=~/build-cache
+          ./.github/workflows/ci-scripts/macos.sh
+
+# in the case of needing to recompile the vcpkg-created Windows dependencies, increment the cache-name and key for both Release and Debug
+# this will create a brand new cache and recompile the vcpkg dependencies from scratch
+  windows-debug:
+    runs-on: windows-2019
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      - name: Cache object files
+        id: windows-N009
+        uses: actions/cache@v2
+        with:
+          path: |
+            D:/a/wesnoth/vcpkg
+            D:/a/wesnoth/wesnoth/vcpkg_installed
+          key: windows-N009
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v1.0.2
+
+      - name: Build vcpkg
+        shell: cmd
+        run: |
+          git clone --depth=1 https://github.com/microsoft/vcpkg.git D:/a/wesnoth/vcpkg
+          cd D:/a/wesnoth/vcpkg
+          git checkout cbc22a396c88d098247fe7f79f0913a952e1f77d
+          D:/a/wesnoth/vcpkg/bootstrap-vcpkg.bat
+
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@v1.9
+        with:
+          cmake-version: '3.20'
+
+      - name: Use cmake
+        run: |
+          cmake --version
+          cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_GAME=true -DENABLE_SERVER=true -DENABLE_CAMPAIGN_SERVER=true -DENABLE_TESTS=true -DENABLE_MYSQL=false -DENABLE_NLS=false -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_TOOLCHAIN_FILE=D:/a/wesnoth/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_GENERATOR_PLATFORM=x64 -G "Visual Studio 16 2019" .
+
+# delete buildtrees directory to free up space after cmake invokes vcpkg to build the dependencies
+# otherwise the job was failing when trying to write a .obj file
+# building vcpkg on the more spacious C drive didn't work since for some reason vcpkg decides to not create the pango/cairo pkgconfig files there
+      - name: Build wesnoth
+        shell: cmd
+        run: |
+          rmdir /s /q D:\a\wesnoth\vcpkg\buildtrees
+          MSBuild.exe wesnoth.sln -p:Configuration=Debug
+
+  windows-release:
+    runs-on: windows-2019
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      - name: Cache object files
+        id: windows-N009
+        uses: actions/cache@v2
+        with:
+          path: |
+            D:/a/wesnoth/vcpkg
+            D:/a/wesnoth/wesnoth/vcpkg_installed
+          key: windows-N009
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v1.0.2
+
+      - name: Build vcpkg
+        shell: cmd
+        run: |
+          git clone --depth=1 https://github.com/microsoft/vcpkg.git D:/a/wesnoth/vcpkg
+          cd D:/a/wesnoth/vcpkg
+          git checkout cbc22a396c88d098247fe7f79f0913a952e1f77d
+          D:/a/wesnoth/vcpkg/bootstrap-vcpkg.bat
+
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@v1.9
+        with:
+          cmake-version: '3.20'
+
+      - name: Use cmake
+        run: |
+          cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_GAME=true -DENABLE_SERVER=true -DENABLE_CAMPAIGN_SERVER=true -DENABLE_TESTS=true -DENABLE_MYSQL=false -DENABLE_NLS=false -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_TOOLCHAIN_FILE=D:/a/wesnoth/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_GENERATOR_PLATFORM=x64 -G "Visual Studio 16 2019" .
+
+# delete buildtrees directory to free up space after cmake invokes vcpkg to build the dependencies
+# otherwise the job was failing when trying to write a .obj file
+# building vcpkg on the more spacious C drive didn't work since for some reason vcpkg decides to not create the pango/cairo pkgconfig files there
+      - name: Build wesnoth
+        shell: cmd
+        run: |
+          rmdir /s /q D:\a\wesnoth\vcpkg\buildtrees
+          MSBuild.exe wesnoth.sln -p:Configuration=Release
+
+      - name: Run WML unit tests
+        shell: cmd
+        run: |
+          python run_wml_tests -v -g -c -t 20 -p D:/a/wesnoth/wesnoth/Release/wesnoth.exe
